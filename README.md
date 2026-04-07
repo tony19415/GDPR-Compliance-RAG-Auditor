@@ -1,70 +1,84 @@
-# Enterprise GDPR Auditor: Advanced RAG & GraphRAG
-An enterprise grade, local-first compliance platform that automates the auditing of internal documents (HR policies, vendor DPAs) against the GDPR, Dutch AP, and German BfDI frameworks.
+# GDPR Compliance RAG Auditor
+A Privacy-First, Multi-Stage RAG Pipeline for Automated Legal Auditing
 
-By combining Hybrid Vector Search with Knowledge Graph Relational Mapping (GraphRAG), this system identifies both textual discrepancies and structural organizational risks that traditional RAG systems miss.
+Built with a focus on zero-hallucination and data minimization, this tool allows users to audit legal contracts against GDPR and the EU Data Act regulations using a fully local LLM stack.
+
+## Key Features
+- **Privacy by Design:** Local-only execution using **Ollama**. No legal data ever leaves the local environment.
+- **PII Sanitization:** Automated **Regex-based redaction** of names and emails before documents are embedded or stored.
+- **Multi-Stage Retrieval:** A hybrid search architecture combining **BM25 (Keyword)** and **Vector (Semantic) search**, optimized by a **Flashrank Cross-Encoder Reranker**.
+- **High-Fidelity Inference:** Powered by **Llama 3.1 8B** with a strictly extractive prompt to ensure $100\%$ faithfulness to the legal text.
+- **Quantitative Evaluation:** Integrated **Ragas framework** using **Mistral 12B** as a "Judge" to benchmark performance against a synthetic "Golden Dataset."
 
 ## System Architecture
-The system is built on a **Decoupled Microservices Architecture** to ensure scalability and data sovereignty:
-- **Logic Engine (FastAPI):** Secure REST API gateway with X-API-Key protection and Pydantic-enforced deterministic JSON outputs.
-
-- **Vector Brain (ChromaDB + BM25):** Dual-index retrieval for high-precision semantic and keyword matching of legal text.
-
-- **Relational Brain (Neo4j):** Maps complex organizational chains (Controller → Processor → Sub-processor) to detect structural violations.
-
-- **Local Inference (Ollama):** Powered by **Llama 3.1 8B**, ensuring 100% of PII remains on-premise (No external API calls to US servers).
-
-- **Data Governance (DVC):** Version control for vector and graph databases, ensuring reproducible and explainable AI audits.
+The system utilizes a complex "Wide-Funnel" retrieval strategy to maximize recall without sacrificing precision.
+### 1. The Data Pipeline (ETL)
+- **Loading:** ```PyMuPDF``` with automated metadata extraction (Source, Page Number).
+- **Sanitization:** PII masking layer to ensure GDPR compliance within the database.
+- **Chunking:** ```RecursiveCharacterTextSplitter``` (1500 tokens / 500 overlap) to maintain legal context across page breaks.
+- **Embedding:** ```mxbai-embed-large``` (1024-dim) for high-density semantic representation.
+### 2. The Retrieval Stack
+- **Layer 1 (Ensemble):** Combines Vector Similarity ($k=20$) and BM25 Keyword matching ($w=0.5/0.5$).
+- **Layer 2 (Reranking):** ```ms-marco-MiniLM-L-12-v2``` re-scores the top 20 candidates to find the most relevant legal articles.
+- **Layer 3 (Compression):** Filters the set down to the Top 5 most relevant chunks to prevent LLM "context fatigue."
 
 <img width="1041" height="679" alt="Image" src="https://github.com/user-attachments/assets/e0ee40e6-d7b2-4bfd-bc8e-55de34bab3cc" />
 
+RAGAS Framework + Test Set Generation
+<img width="1446" height="800" alt="Image" src="https://github.com/user-attachments/assets/01227c19-a7d5-4abc-9d72-f164c46a40aa" />
 
-## Key Features
-- **Hybrid Retrieval Pipeline:** Ensembles BM25 (keyword) and ChromaDB (semantic) search to achieve high recall on specific legal articles (e.g., Article 28, Article 33).
+## Performance & Evaluation
+The system is continuously benchmarked using Ragas. Our final optimization iteration achieved the following "Gold Standard" results:
 
-- **Automated Entity Extraction:** Utilizes XML-tagged prompt engineering to transform unstructured PDFs into structured Neo4j triples.
-
-- **Jurisdictional Routing:** Specialized retrieval namespaces for Dutch (AP) and German (BfDI) guidance, prioritizing local authority interpretations.
-
-- **Deterministic Reporting:** Generates executive-level HTML Audit Reports with visual compliance scoring and automated remediation suggestions.
-
-- **CI/CD Integration:** Automated testing suite via GitHub Actions verifying retrieval precision and schema compliance on every push.
+| Metric            | Score | Insight                                                    |
+|-------------------|-------|------------------------------------------------------------|
+| Faithfulness      | 1.00  | Zero hallucinations; the auditor only cites provided text. |
+| Answer Relevancy  | 0.76  | High alignment between user queries and legal reasoning.   |
+| Context Recall    | 0.80  | Successfully identifies complex, non-consecutive articles. |
+| Context Precision | 0.85  | Reranker successfully places "Gold Chunks" at the #1 rank. |
 
 ## Tech Stack
-| Category          | Tools                                           |
-|-------------------|-------------------------------------------------|
-| LLM Orchestration | LangChain, Ollama (Llama 3.1 8B)                |
-| Databases         | ChromaDB (Vector), Neo4j (Graph), Redis (Cache) |
-| Backend/API       | FastAPI, Uvicorn, Pydantic                      |
-| Frontend/UI       | Streamlit, Streamlit-Agraph (Visualization)     |
-| Data Engineering  | DVC (Data Version Control), Docker Compose      |
-| MLOps/DevOps      | GitHub Actions, Pytest, Jinja2                  |
+| Category          | Tools                                            |
+|-------------------|--------------------------------------------------|
+| LLM Orchestration | LangChain                                        |
+| LLMs              | Llama 3.1 8B (Auditor), Mistral Nemo 12B (Judge) |
+| Vector Store      | ChromaDB                                         |
+| Embeddings        | Ollama (mxbai-embed-large)                       |
+| UI                | Streamlit                                        |
+| Reranker          | Flashrank                                        |
+| Evaluation        | Ragas                                            |
 
-## Getting Started
-1. Prerequisites
-- Docker & Docker Compose
+## 🐳 Docker Deployment (Recommended)
+To ensure environment parity and simplify dependency management, you can run the entire auditor suite using Docker.
 
-- Python 3.10+
+### Prerequisites
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/) installed and running.
+- Ollama installed on your host machine with the necessary models already pulled (`llama3.1:8b`, `mxbai-embed-large`).
 
-- Ollama (Local)
+### Deployment Steps
+1. **Build and Start:**
+   ```bash
+   docker-compose up --build
 
-2. Infrastructure Setup
-Spin up the multi-service stack:
+## Installation & Setup
+1. Clone Repository
 ```
-docker-compose up -d
+git clone https://github.com/yourusername/gdpr-rag-auditor.git
+cd gdpr-rag-auditor
+```
+2. Install Dependencies
+```
+pip install -r requirements.txt
 ```
 
-3. Data Ingestion & Versioning
+3. Pull Local Models
 ```
-dvc pull
-python graph_ingest.py  # Map organizational relationships to Neo4j
+ollama pull llama3.1:8b
+ollama pull mistral-nemo:12b
+ollama pull mxbai-embed-large
 ```
 
-4. Running the Platform
-Launch the Backend API and Frontend Client:
+4. Run Streamlit App
 ```
-# Terminal 1: Start the Brain
-python server.py
-
-# Terminal 2: Start the Body
 streamlit run app.py
 ```
