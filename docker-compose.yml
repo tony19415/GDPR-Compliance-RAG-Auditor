@@ -1,0 +1,15 @@
+services:
+  gdpr-auditor:
+    build: .
+    container_name: gdpr-rag-auditor
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./data:/app/data
+      - ./chroma_db:/app/chroma_db
+    environment:
+      - OLLAMA_BASE_URL=http://host.docker.internal:11434
+    # This allows the container to talk to the Ollama service on your local machine
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
