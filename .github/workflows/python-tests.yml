@@ -18,4 +18,6 @@ jobs:
           pip install pytest
       
       - name: Run Tests
+        env:
+          PYTHONPATH: .  # <--- This tells Python to look in the root folder for modules
         run: pytest tests/
