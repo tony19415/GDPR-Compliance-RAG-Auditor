@@ -21,12 +21,28 @@ except ImportError:
 
 from langchain_community.document_compressors import FlashrankRerank # No 'er' at the end
 
+OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+
 # Schema Definition
 class AuditResult(BaseModel):
     status: str = Field(description="Either 'PASS', 'FAIL', or 'UNCLEAR'")
     violation_found: bool = Field(description="True if the contract contradicts GDPR")
     reasoning: str = Field(description="Brief legal explanation for the status")
     rememdy: str = Field(description="Specific advice on how to fix the clause")
+
+def check_safety(text):
+    """
+    Usee Llama Guard to classify input/output safety
+    """
+
+    guard_model = ChatOllama(model="llama-guard3:8b", temperature=0, base_url=OLLAMA_BASE_URL)
+
+    response = guard_model.invoke(text)
+
+    # Llama guard returns 'unsafe' or 'safe'
+    if "unsafe" in response.content.lower():
+        return False
+    return True
 
 def redact_pii(text, mode="redact"):
     """
@@ -52,6 +68,32 @@ def redact_pii(text, mode="redact"):
     text = re.sub(name_header_pattern, r'\1: [REDACTED_NAME]', text)
 
     return text
+
+def load_and_enrich_regs(file_path, version="2016/679", jurisdiction="EU"):
+    """
+    -DMBOK Alignment: Metadata Management & Lineage. 
+    Explicitly tag documents with regulatory context
+    """
+
+    loader = PyMuPDFLoader(file_path)
+    data = loader.load()
+
+    # Standardize Metadata Schema
+    governance_metaata = {
+        "reg_version": version,
+        "jurisdiction": jurisdiction,
+        "effective_date": "2018-05-25" if "GDPR" in file_path else "2024-01-01",
+        "ingestion_timestamp": datetime.now().isoformat(),
+        "data_steward": "D1"
+    }
+
+    for doc in data:
+        # Preserve original source and page from PyMuPDF
+        # Enrich it with governance tags
+        doc.metadata.update(governance_metaata)
+
+    return data
+
 def clean_legal_text(text: str) -> str:
     """ETL: Cleaning raw PDF noise for high-fidelity RAG."""
     # Remove 'Page X' or 'Page X of Y'
@@ -83,7 +125,7 @@ def setup_dual_indices():
     os.makedirs("data/contracts/", exist_ok=True)
     os.makedirs("chroma_db/", exist_ok=True)
     
-    embeddings = OllamaEmbeddings(model="mxbai-embed-large") # or llama3.1:8b if your hardware allows
+    embeddings = OllamaEmbeddings(model="mxbai-embed-large", base_url=OLLAMA_BASE_URL) # or llama3.1:8b if your hardware allows
 
     # --- 1. Source of Truth (GDPR Regulations) ---
     reg_loader = DirectoryLoader(
@@ -156,6 +198,10 @@ def setup_dual_indices():
     return reg_retriever, target_vdb
 
 def run_compliance_audit(reg_retriever, target_vdb, checkpoint):
+    # Guardrail input
+    if not check_safety(checkpoint['query']):
+        return {"status": "BLOCKED", "reasoning": "Inappropriate or unsafe query detected.", "rememdy": "N/A"}, []
+    
     # Retrieve from Regulations
     reg_context = reg_retriever.invoke(checkpoint['query'])
     reg_text = "\n".join([r.page_content for r in reg_context])
@@ -163,8 +209,9 @@ def run_compliance_audit(reg_retriever, target_vdb, checkpoint):
 
     # Setup Structured Output
     parser = JsonOutputParser(pydantic_object=AuditResult)
-    model = ChatOllama(model="llama3.1:8b", temperature=0, top_p=0.1, num_predict=512)
+    model = ChatOllama(model="llama3.1:8b", temperature=0, top_p=0.1, num_predict=512, base_url=OLLAMA_BASE_URL)
 
+    # System Prompt
     prompt = f"""
     <role>You are a Precise GDPR Information Extractor and Auditor.</role>
     <task>Answer the <user_query> using ONLY the <gdpr_context> provided.</task>
@@ -200,6 +247,11 @@ def run_compliance_audit(reg_retriever, target_vdb, checkpoint):
         response = model.invoke(prompt)
         content = response.content if hasattr(response, 'content') else str(response)
         
+        # Output GuardRail
+        if not check_safety(content):
+            return {"status": "BLOCKED", "reasoning": "Auditor response failed safety check.", "rememdy": "Manual review required."}, reg_context
+
+        # JSON Sniffer
         match = re.search(r'\{.*\}', content, re.DOTALL)
         if match:
             raw_data = json.loads(match.group(0))
