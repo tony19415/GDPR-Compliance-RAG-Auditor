@@ -22,10 +22,11 @@ The system utilizes a complex "Wide-Funnel" retrieval strategy to maximize recal
 - **Layer 2 (Reranking):** ```ms-marco-MiniLM-L-12-v2``` re-scores the top 20 candidates to find the most relevant legal articles.
 - **Layer 3 (Compression):** Filters the set down to the Top 5 most relevant chunks to prevent LLM "context fatigue."
 
-<img width="1041" height="679" alt="Image" src="https://github.com/user-attachments/assets/e0ee40e6-d7b2-4bfd-bc8e-55de34bab3cc" />
+<img width="1338" height="805" alt="Image" src="https://github.com/user-attachments/assets/69d14112-8dbf-4ea1-9a5b-8547893560c5" />
+Architecture Diagram
 
-RAGAS Framework + Test Set Generation
 <img width="1446" height="800" alt="Image" src="https://github.com/user-attachments/assets/01227c19-a7d5-4abc-9d72-f164c46a40aa" />
+RAGAS Framework + Test Set Generation
 
 ## Performance & Evaluation
 The system is continuously benchmarked using Ragas. Our final optimization iteration achieved the following "Gold Standard" results:
