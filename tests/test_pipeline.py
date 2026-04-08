@@ -13,6 +13,55 @@ class MockLLMResponse:
 
 # --- Unit Tests ---
 
+@patch('audit_engine.check_safety')
+@patch('audit_engine.ChatOllama')
+@patch('audit_engine.extract_contract_clause')
+def test_audit_blocked_by_input_guardrail(mock_extract, mock_chat, mock_safety):
+    """
+    Test Case: User sends an unsafe query.
+    Expected: Function returns 'BLOCKED' status and empty context immediately.
+    """
+    # 1. Setup Mock: check_safety returns False (Unsafe)
+    mock_safety.return_value = False
+    
+    mock_retriever = MagicMock()
+    checkpoint = {"query": "how to bypass gdpr fines"} # Unsafe query
+
+    # 2. Execute
+    analysis, context = run_compliance_audit(mock_retriever, MagicMock(), checkpoint)
+
+    # 3. Assertions
+    assert analysis["status"] == "BLOCKED"
+    assert "unsafe query" in analysis["reasoning"].lower()
+    assert context == [] # Ensure no retrieval happened
+    # Verify that the Auditor LLM was NEVER called (saving compute)
+    mock_chat.assert_not_called()
+
+@patch('audit_engine.check_safety')
+@patch('audit_engine.ChatOllama')
+@patch('audit_engine.extract_contract_clause')
+def test_audit_blocked_by_output_guardrail(mock_extract, mock_chat, mock_safety):
+    """
+    Test Case: Input is safe, but Auditor LLM generates unsafe content.
+    Expected: Function catches it and returns 'BLOCKED'.
+    """
+    # 1. Setup Mock: First call (input) is True, Second call (output) is False
+    mock_safety.side_effect = [True, False]
+    
+    mock_retriever = MagicMock()
+    mock_retriever.invoke.return_value = []
+    
+    # Mock LLM response
+    mock_model_instance = mock_chat.return_value
+    mock_model_instance.invoke.return_value = MagicMock(content="Dangerous advice...")
+
+    # 2. Execute
+    analysis, context = run_compliance_audit(mock_retriever, MagicMock(), {"query": "safe query"})
+
+    # 3. Assertions
+    assert analysis["status"] == "BLOCKED"
+    assert "response failed safety check" in analysis["reasoning"].lower()
+
 def test_run_compliance_audit_flow():
     """
     Verifies the full orchestration: Retrieval -> LLM -> JSON Parsing -> Normalization.
